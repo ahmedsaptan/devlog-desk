@@ -2,7 +2,7 @@ import { ClipboardEvent, FormEvent, ReactNode, useEffect, useMemo, useRef, useSt
 import { listen } from '@tauri-apps/api/event';
 import { api } from './lib/api';
 import type { Category, DailyEntry, Sprint } from './lib/types';
-import appLogo from './assets/devlog-logo.svg';
+import appLogo from './assets/devlog-logo.png';
 
 type AppPage = 'home' | 'sprints' | 'sprint' | 'categories' | 'report' | 'settings';
 type ThemeMode = 'system' | 'light' | 'dark';

@@ -1,84 +1,73 @@
-# DevLog Desk (Tauri MVP)
+# DevLog Desk
 
-A cross-platform desktop app for software engineers to log daily updates inside sprints and generate sprint-review reports.
+DevLog Desk is a Tauri desktop app for tracking daily engineering updates inside sprints and exporting clean sprint reports.
 
-## Why this fits your workflow
+## Features
 
-- Track updates daily by category: `Tasks`, `PR Reviews`, `Meetings`.
-- Organize updates under specific sprints (for example `Sprint 150`).
-- Generate markdown reports on demand with filters (date range + categories).
-- Useful for biweekly sprint-end meetings where you may only include `Tasks`.
+- Sprint management with automatic sprint codes (`sprint-1`, `sprint-2`, ...).
+- Configurable sprint duration defaults (1 week or 2 weeks).
+- Dynamic categories (create, rename, delete, auto-reassign items on delete).
+- Daily timeline grouped by date and category.
+- Quick copy per day in plain text or rich text format.
+- Smart paste support for links (`[selected text](https://...)`).
+- Markdown report generation with date and category filters.
+- Reports saved locally to the app data `reports/` directory.
+- Menu bar/tray actions:
+  - Add new item to current sprint
+  - Add new sprint
+  - Toggle tray icon visibility
+  - Custom global shortcut (default: `CmdOrCtrl+Shift+N`)
+- Theme controls:
+  - System / Light / Dark mode
+  - Multiple color palettes
+- Local-first storage in SQLite (no cloud dependency).
 
-## Suggested project names
+## Install (End Users)
 
-- DevLog Desk (chosen in this scaffold)
-- Sprint Ledger
-- DevLog Desk
-- Standup Vault
-- Sprint Notes Hub
-- ShipLog
-- Dev Sprint Journal
-- Workstream Chronicle
+1. Open the [GitHub Releases](../../releases) page.
+2. Download the installer for your OS:
+   - macOS: `.dmg`
+   - Windows: installer bundle from release assets
+   - Linux: package bundle from release assets
+3. Install and launch DevLog Desk.
 
-## Tech stack
+## Release to GitHub (Maintainers)
 
-- Desktop shell: Tauri (Rust)
-- UI: React + TypeScript + Vite
-- Storage: local SQLite database in app data directory
-- Report output: markdown files under app data `reports/`
+This repo includes an automated release workflow at `.github/workflows/release.yml`.
 
-## Data model
+### What it does
 
-- `Sprint`
-  - `id`, `name`, `start_date`, `end_date`, `created_at`
-- `DailyEntry`
-  - `id`, `sprint_id`, `date`, `category`, `title`, `details`, `created_at`
-- `EntryCategory`
-  - `task | review | meeting`
+- Triggers on tag push (`v*`) and optional manual dispatch.
+- Builds installers for macOS (Intel + Apple Silicon), Windows, and Linux.
+- Creates/updates a GitHub Release and uploads installers as assets.
 
-## Commands exposed from Rust
+### Publish a new version
 
-- `list_sprints`
-- `create_sprint`
-- `list_entries_for_sprint`
-- `add_daily_entry`
-- `generate_report`
-- `get_data_path`
+1. Update versions:
+   - `package.json`
+   - `src-tauri/tauri.conf.json`
+   - `src-tauri/Cargo.toml` (recommended to keep aligned)
+2. Commit and push your changes.
+3. Create and push a version tag:
 
-## Run locally
-
-1. Install dependencies:
-   - `npm install`
-2. Run desktop app:
-   - `npm run tauri dev`
-
-## Current project structure
-
-```txt
-.
-├── package.json
-├── index.html
-├── src
-│   ├── App.tsx
-│   ├── main.tsx
-│   ├── styles.css
-│   └── lib
-│       ├── api.ts
-│       └── types.ts
-└── src-tauri
-    ├── Cargo.toml
-    ├── build.rs
-    ├── tauri.conf.json
-    ├── capabilities
-    │   └── default.json
-    └── src
-        └── main.rs
+```bash
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
-## Next iteration ideas
+4. Wait for the `release` GitHub Action to finish.
+5. Share the Release URL with users for easy installation.
 
-- Edit/delete entries and sprints.
-- Search and tag support.
-- Export PDF/CSV in addition to markdown.
-- Optional SQLite backend for larger datasets.
-- Team sync mode with remote API.
+## Local Development
+
+```bash
+npm install
+npm run tauri dev
+```
+
+## Build Locally
+
+```bash
+npm run build
+npm run tauri build
+```
