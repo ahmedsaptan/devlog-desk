@@ -570,15 +570,14 @@ fn migrate_preview_category_db(conn: &Connection) -> Result<(), String> {
         )
         .optional()
         .map_err(|error| format!("failed to check PR-Reviews category id: {error}"))?
-        .or(
-            conn.query_row(
+        .or(conn
+            .query_row(
                 "SELECT id FROM categories WHERE lower(name) = lower('PR-Reviews') LIMIT 1",
                 [],
                 |row| row.get::<_, String>(0),
             )
             .optional()
-            .map_err(|error| format!("failed to check PR-Reviews category name: {error}"))?,
-        );
+            .map_err(|error| format!("failed to check PR-Reviews category name: {error}"))?);
 
     let target_id = if let Some(existing_id) = target_id {
         existing_id
@@ -1362,7 +1361,6 @@ fn generate_report(app: AppHandle, input: ReportInput) -> Result<ReportOutput, S
 
     let mut markdown = String::new();
     markdown.push_str(&format!("# Sprint Report: {}\n\n", sprint.name));
-    markdown.push_str(&format!("- Sprint ID: `{}`\n", sprint.id));
     markdown.push_str(&format!("- Sprint Code: `{}`\n", sprint.code));
     markdown.push_str(&format!(
         "- Sprint Window: {} to {}\n",
@@ -1372,17 +1370,7 @@ fn generate_report(app: AppHandle, input: ReportInput) -> Result<ReportOutput, S
             .clone()
             .unwrap_or_else(|| "open".to_string())
     ));
-    markdown.push_str(&format!("- Exported At: {}\n", now()));
-
-    if let Some(from) = &input.from_date {
-        markdown.push_str(&format!("- Report From: {}\n", from));
-    }
-
-    if let Some(to) = &input.to_date {
-        markdown.push_str(&format!("- Report To: {}\n", to));
-    }
-
-    markdown.push_str(&format!("- Included Items: {}\n\n", filtered.len()));
+    markdown.push_str(&format!("- Exported At: {}\n\n", now()));
 
     if grouped.is_empty() {
         markdown.push_str("No items found for the selected filters.\n");
@@ -1487,9 +1475,7 @@ fn update_menubar_settings(app: AppHandle, input: MenubarSettingsInput) -> Resul
     let shortcut = normalize_shortcut_accelerator(input.add_item_shortcut);
     let tray_menu = build_tray_menu(
         &app,
-        shortcut
-            .as_deref()
-            .or(Some(DEFAULT_ADD_ITEM_SHORTCUT)),
+        shortcut.as_deref().or(Some(DEFAULT_ADD_ITEM_SHORTCUT)),
     )
     .map_err(|error| format!("failed to rebuild tray menu: {error}"))?;
 

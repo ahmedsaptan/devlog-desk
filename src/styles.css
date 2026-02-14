@@ -799,6 +799,30 @@ hr {
   overflow-wrap: anywhere;
 }
 
+.timeline-inline-edit {
+  display: grid;
+  gap: 6px;
+  min-width: min(100%, 360px);
+}
+
+.timeline-inline-input,
+.timeline-inline-textarea {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field-bg);
+  color: var(--ink);
+  padding: 6px 8px;
+}
+
+.timeline-inline-input {
+  min-height: 32px;
+}
+
+.timeline-inline-textarea {
+  min-height: 56px;
+  resize: vertical;
+}
+
 .timeline-item-actions {
   display: inline-flex;
   align-items: center;

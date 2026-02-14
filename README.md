@@ -99,6 +99,35 @@ npm install
 npm run tauri dev
 ```
 
+## CLI
+
+Run the interactive CLI:
+
+```bash
+npm run cli
+```
+
+Navigation keys:
+
+- `Up/Down`: move between options
+- `Space` or `Enter`: select option
+- `Left`: go back
+- `Q`: quit
+
+CLI features:
+
+- list all sprints
+- enter sprint and view summary
+- pick a specific date and view full details
+- view all sprint details
+- copy one day data to clipboard
+- generate sprint markdown report
+
+Optional environment overrides:
+
+- `DEVLOG_DB_PATH`: direct SQLite database path
+- `DEVLOG_DATA_DIR`: app data root (used for database and reports)
+
 ## Build Locally
 
 ```bash

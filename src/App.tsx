@@ -1314,6 +1314,7 @@ export default function App() {
 
     setEntryTitle('');
     setEntryDetails('');
+    setEditingEntryId('');
     setConfirmDeleteEntryId('');
   }, [page]);
 
@@ -1903,12 +1904,11 @@ export default function App() {
     setEntryTitle(item.title);
     setEntryDetails(item.details ?? '');
     setError('');
-    setNotice('Editing item. Update it in the form.');
-
+    setNotice('');
     window.setTimeout(() => {
       entryTitleInputRef.current?.focus();
       entryTitleInputRef.current?.select();
-    }, 40);
+    }, 60);
   }
 
   function cancelEditEntry() {
@@ -2002,10 +2002,10 @@ export default function App() {
         });
       }
 
-      setEditingEntryId('');
       setEntryTitle('');
       setEntryDetails('');
       setEntryDate(isoDateToday());
+      setEditingEntryId('');
       setConfirmDeleteEntryId('');
       await loadEntriesForSprint(selectedSprintId);
       setCollapsedTimelineDays({ [submittedDate]: false });
@@ -2035,18 +2035,33 @@ export default function App() {
     setPage('sprint');
   }
 
+  function applyReportDateDefaults(sprint: Sprint | undefined) {
+    if (!sprint) {
+      setReportFromDate('');
+      setReportToDate('');
+      return;
+    }
+
+    setReportFromDate(sprint.start_date);
+    setReportToDate(sprint.end_date ?? '');
+  }
+
   function openReportPage() {
     if (!selectedSprintId) {
       setError('Choose a sprint first.');
       return;
     }
 
+    const sprint = sprints.find((item) => item.id === selectedSprintId);
+    applyReportDateDefaults(sprint);
     setError('');
     setPage('report');
   }
 
   function openReportForSprint(sprintId: string) {
+    const sprint = sprints.find((item) => item.id === sprintId);
     setSelectedSprintId(sprintId);
+    applyReportDateDefaults(sprint);
     setError('');
     setPage('report');
   }
@@ -3265,7 +3280,7 @@ export default function App() {
               <section className="card sprint-detail-form">
                 <h2>{editingEntryId ? 'Edit Daily Item' : 'Add Daily Item'}</h2>
                 {editingEntryId ? (
-                  <p className="meta">Save the form to update this timeline item.</p>
+                  <p className="meta">Editing selected timeline item. Save to apply changes.</p>
                 ) : null}
                 {categories.length === 0 ? (
                   <p className="meta">No categories yet. Create one in the Categories page.</p>
@@ -3330,15 +3345,10 @@ export default function App() {
                       !entryDate.trim()
                     }
                   >
-                    {editingEntryId ? 'Update Item' : 'Add Item'}
+                    {editingEntryId ? 'Save Item' : 'Add Item'}
                   </button>
                   {editingEntryId ? (
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={cancelEditEntry}
-                      disabled={busy}
-                    >
+                    <button type="button" className="btn-secondary" onClick={cancelEditEntry} disabled={busy}>
                       Cancel Edit
                     </button>
                   ) : null}
