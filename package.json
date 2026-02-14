@@ -6,12 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:prod": "npm run build",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build:dmg": "tauri build --bundles dmg",
     "tauri:build:all": "tauri build",
-    "tauri:build:all:ci": "tauri build --ci"
+    "tauri:build:all:ci": "tauri build --ci",
+    "tauri:release": "tauri build --ci",
+    "tauri:release:dmg": "tauri build --bundles dmg --ci"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

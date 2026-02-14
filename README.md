@@ -24,7 +24,7 @@ DevLog Desk is a Tauri desktop app for tracking daily engineering updates inside
 
 ## Install (End Users)
 
-1. Open the [GitHub Releases](../../releases) page.
+1. Open the [GitHub Releases](https://github.com/ahmedsaptan/devlog-desk/releases) page.
 2. Download the installer for your OS:
    - macOS: `.dmg`
    - Windows: installer bundle from release assets
@@ -38,7 +38,7 @@ This repo includes an automated release workflow at `.github/workflows/release.y
 ### What it does
 
 - Triggers on tag push (`v*`) and optional manual dispatch.
-- Builds installers for macOS (Intel + Apple Silicon), Windows, and Linux.
+- Builds installers for macOS, Windows, and Linux.
 - Creates/updates a GitHub Release and uploads installers as assets.
 
 ### Publish a new version
