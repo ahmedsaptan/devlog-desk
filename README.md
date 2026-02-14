@@ -31,32 +31,66 @@ DevLog Desk is a Tauri desktop app for tracking daily engineering updates inside
    - Linux: package bundle from release assets
 3. Install and launch DevLog Desk.
 
-## Release to GitHub (Maintainers)
+## Manual Release (Maintainers)
 
-This repo includes an automated release workflow at `.github/workflows/release.yml`.
+Releases are created manually so you can control the final title, notes, and attached assets.
 
-### What it does
+### 1) Build installers on each OS
 
-- Triggers on tag push (`v*`) and optional manual dispatch.
-- Builds installers for macOS, Windows, and Linux.
-- Creates/updates a GitHub Release and uploads installers as assets.
-
-### Publish a new version
-
-1. Update versions:
-   - `package.json`
-   - `src-tauri/tauri.conf.json`
-   - `src-tauri/Cargo.toml` (recommended to keep aligned)
-2. Commit and push your changes.
-3. Create and push a version tag:
+- macOS:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+npm install
+npm run tauri:release:dmg
 ```
 
-4. Wait for the `release` GitHub Action to finish.
-5. Share the Release URL with users for easy installation.
+- Windows:
+
+```bash
+npm install
+npm run tauri:release
+```
+
+- Linux:
+
+```bash
+npm install
+npm run tauri:release
+```
+
+Release bundles are generated under `src-tauri/target/release/bundle/`.
+
+### 2) Create and push a version tag
+
+```bash
+git tag v0.2.1
+git push origin v0.2.1
+```
+
+### 3) Create release on GitHub
+
+1. Open [Releases](https://github.com/ahmedsaptan/devlog-desk/releases).
+2. Click `Draft a new release`.
+3. Select tag `v0.2.1`.
+4. Title example: `DevLog Desk v0.2.1`.
+5. Upload installer files from each OS build.
+6. Paste release notes (template below), then publish.
+
+### Release Notes Template
+
+```md
+## DevLog Desk v0.2.1
+
+### What's New
+- Improved sprint tracking and report flow.
+- UI and settings refinements.
+
+### Fixes
+- Bug fixes and stability improvements.
+
+### Install
+- Download the installer for your OS from the assets below.
+```
 
 ## Local Development
 
