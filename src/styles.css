@@ -787,6 +787,43 @@ hr {
   gap: 4px;
 }
 
+.timeline-item-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.timeline-item-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.timeline-item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.timeline-item-action-button {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+
+.timeline-item-action-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.timeline-item-confirm-button {
+  min-height: 32px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  font-size: 0.8rem;
+}
+
 ul {
   margin: 0;
   padding-left: 16px;
@@ -920,8 +957,23 @@ li p {
   gap: 12px;
 }
 
-.home-active-sprint-card .inline-actions button {
+.home-active-sprint-card .inline-actions > button,
+.home-active-sprint-card .inline-actions > .sprint-card-more > .sprint-card-more-trigger {
   padding: 10px 16px;
+}
+
+.home-active-sprint-actions {
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.home-active-sprint-actions .sprint-card-more {
+  margin-left: auto;
+}
+
+.home-active-sprint-card .sprint-card-more-menu button {
+  padding: 8px 10px;
 }
 
 .sprint-date-range {
@@ -1015,6 +1067,36 @@ li p {
 
 .shortcut-input {
   font-family: "SFMono-Regular", Menlo, Monaco, monospace;
+}
+
+.danger-zone-card {
+  border-color: rgba(154, 52, 68, 0.55);
+}
+
+.danger-zone-reset-row {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.danger-zone-input {
+  font-family: "SFMono-Regular", Menlo, Monaco, monospace;
+}
+
+.danger-zone-confirm-actions {
+  margin-top: 10px;
+}
+
+.danger-zone-alert {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(154, 52, 68, 0.5);
+  border-radius: 10px;
+  background: rgba(154, 52, 68, 0.12);
+  color: #ffd9df;
+  font-weight: 600;
 }
 
 .theme-palette-options {
@@ -1379,12 +1461,6 @@ li p {
   line-height: 1;
 }
 
-.sprint-delete-hint {
-  margin: 0;
-  max-width: 420px;
-  text-align: right;
-}
-
 .sprint-inline-rename {
   margin-top: 10px;
   max-width: 360px;
@@ -1561,10 +1637,6 @@ li p {
     justify-items: start;
   }
 
-  .sprint-delete-hint {
-    text-align: left;
-  }
-
   .sprint-detail-layout {
     grid-template-columns: 1fr;
   }
@@ -1578,6 +1650,10 @@ li p {
   }
 
   .shortcut-settings-row {
+    grid-template-columns: 1fr;
+  }
+
+  .danger-zone-reset-row {
     grid-template-columns: 1fr;
   }
 

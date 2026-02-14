@@ -30,6 +30,14 @@ export const api = {
     title: string;
     details?: string | null;
   }) => invoke<DailyEntry>('add_daily_entry', { input: payload }),
+  updateDailyEntry: (payload: {
+    id: string;
+    date: string;
+    category_id: string;
+    title: string;
+    details?: string | null;
+  }) => invoke<DailyEntry>('update_daily_entry', { input: payload }),
+  deleteDailyEntry: (payload: { id: string }) => invoke<void>('delete_daily_entry', { input: payload }),
 
   generateReport: (payload: {
     sprint_id: string;
@@ -42,5 +50,6 @@ export const api = {
   updateMenubarSettings: (payload: {
     show_icon: boolean;
     add_item_shortcut?: string | null;
-  }) => invoke<void>('update_menubar_settings', { input: payload })
+  }) => invoke<void>('update_menubar_settings', { input: payload }),
+  resetDatabase: () => invoke<void>('reset_database')
 };

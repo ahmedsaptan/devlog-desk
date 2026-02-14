@@ -1,4 +1,4 @@
-use chrono::{Duration, Local, NaiveDate, Utc};
+use chrono::{Duration, NaiveDate, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -95,6 +95,20 @@ struct NewDailyEntryInput {
 }
 
 #[derive(Debug, Deserialize)]
+struct UpdateDailyEntryInput {
+    id: String,
+    date: String,
+    category_id: String,
+    title: String,
+    details: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeleteDailyEntryInput {
+    id: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct ReportInput {
     sprint_id: String,
     from_date: Option<String>,
@@ -128,30 +142,6 @@ fn now() -> String {
 fn next_id(prefix: &str) -> String {
     let ts = Utc::now().timestamp_nanos_opt().unwrap_or(0);
     format!("{prefix}-{ts}")
-}
-
-fn pick_active_sprint_id(sprints: &[Sprint]) -> Option<String> {
-    if sprints.is_empty() {
-        return None;
-    }
-
-    let today = Local::now().date_naive().format("%Y-%m-%d").to_string();
-    let mut newest_first = sprints.to_vec();
-    newest_first.sort_by(|left, right| right.created_at.cmp(&left.created_at));
-
-    if let Some(ongoing) = newest_first.iter().find(|sprint| {
-        let starts_ok = sprint.start_date <= today;
-        let ends_ok = sprint
-            .end_date
-            .as_deref()
-            .map(|end_date| end_date >= today.as_str())
-            .unwrap_or(true);
-        starts_ok && ends_ok
-    }) {
-        return Some(ongoing.id.clone());
-    }
-
-    newest_first.first().map(|sprint| sprint.id.clone())
 }
 
 fn app_data_root(app: &AppHandle) -> Result<PathBuf, String> {
@@ -276,8 +266,8 @@ fn default_categories() -> Vec<Category> {
 
     vec![
         Category {
-            id: "preview".to_string(),
-            name: "Preview".to_string(),
+            id: "pr-reviews".to_string(),
+            name: "PR-Reviews".to_string(),
             created_at: created_at.clone(),
         },
         Category {
@@ -558,6 +548,67 @@ fn ensure_default_categories_db(conn: &Connection) -> Result<(), String> {
     Ok(())
 }
 
+fn migrate_preview_category_db(conn: &Connection) -> Result<(), String> {
+    let preview_created_at = conn
+        .query_row(
+            "SELECT created_at FROM categories WHERE id = 'preview' LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| format!("failed to query legacy preview category: {error}"))?;
+
+    let Some(preview_created_at) = preview_created_at else {
+        return Ok(());
+    };
+
+    let target_id = conn
+        .query_row(
+            "SELECT id FROM categories WHERE id = 'pr-reviews' LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| format!("failed to check PR-Reviews category id: {error}"))?
+        .or(
+            conn.query_row(
+                "SELECT id FROM categories WHERE lower(name) = lower('PR-Reviews') LIMIT 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| format!("failed to check PR-Reviews category name: {error}"))?,
+        );
+
+    let target_id = if let Some(existing_id) = target_id {
+        existing_id
+    } else {
+        conn.execute(
+            "INSERT INTO categories (id, name, created_at) VALUES (?1, ?2, ?3)",
+            params!["pr-reviews", "PR-Reviews", preview_created_at],
+        )
+        .map_err(|error| format!("failed to create PR-Reviews category: {error}"))?;
+        "pr-reviews".to_string()
+    };
+
+    conn.execute(
+        "UPDATE entries SET category_id = ?1 WHERE category_id = 'preview'",
+        params![target_id],
+    )
+    .map_err(|error| format!("failed to move preview entries to PR-Reviews: {error}"))?;
+
+    conn.execute("DELETE FROM categories WHERE id = 'preview'", [])
+        .map_err(|error| format!("failed to remove legacy preview category: {error}"))?;
+
+    conn.execute(
+        "UPDATE categories SET name = 'PR-Reviews' WHERE id = 'pr-reviews'",
+        [],
+    )
+    .map_err(|error| format!("failed to normalize PR-Reviews category name: {error}"))?;
+
+    Ok(())
+}
+
 fn ensure_sprint_codes_db(conn: &Connection) -> Result<(), String> {
     let mut stmt = conn
         .prepare("SELECT id, code, name, created_at FROM sprints ORDER BY created_at")
@@ -635,6 +686,7 @@ fn open_db(app: &AppHandle) -> Result<Connection, String> {
     init_schema(&conn)?;
     migrate_legacy_json_if_needed(app, &mut conn)?;
     ensure_default_categories_db(&conn)?;
+    migrate_preview_category_db(&conn)?;
     ensure_sprint_codes_db(&conn)?;
 
     Ok(conn)
@@ -1065,13 +1117,6 @@ fn delete_sprint(app: AppHandle, input: DeleteSprintInput) -> Result<(), String>
     }
 
     let conn = open_db(&app)?;
-    let sprints = list_sprints_db(&conn)?;
-    if let Some(active_sprint_id) = pick_active_sprint_id(&sprints) {
-        if active_sprint_id == sprint_id {
-            return Err("cannot delete the active sprint".to_string());
-        }
-    }
-
     let affected = conn
         .execute("DELETE FROM sprints WHERE id = ?1", params![sprint_id])
         .map_err(|error| format!("failed to delete sprint: {error}"))?;
@@ -1147,6 +1192,96 @@ fn add_daily_entry(app: AppHandle, input: NewDailyEntryInput) -> Result<DailyEnt
     .map_err(|error| format!("failed to add entry: {error}"))?;
 
     Ok(entry)
+}
+
+#[tauri::command]
+fn update_daily_entry(app: AppHandle, input: UpdateDailyEntryInput) -> Result<DailyEntry, String> {
+    let entry_id = input.id.trim();
+    let date = input.date.trim();
+    let category_id = input.category_id.trim();
+    let title = input.title.trim();
+
+    if entry_id.is_empty() {
+        return Err("entry id is required".to_string());
+    }
+
+    if title.is_empty() {
+        return Err("title is required".to_string());
+    }
+
+    if date.is_empty() {
+        return Err("date is required".to_string());
+    }
+
+    if category_id.is_empty() {
+        return Err("category_id is required".to_string());
+    }
+
+    let conn = open_db(&app)?;
+
+    if !category_exists(&conn, category_id)? {
+        return Err("the selected category does not exist".to_string());
+    }
+
+    let normalized_details = input.details.and_then(|value| {
+        let trimmed = value.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    });
+
+    let affected = conn
+        .execute(
+            "UPDATE entries
+             SET date = ?1, category_id = ?2, title = ?3, details = ?4
+             WHERE id = ?5",
+            params![date, category_id, title, normalized_details, entry_id],
+        )
+        .map_err(|error| format!("failed to update entry: {error}"))?;
+
+    if affected == 0 {
+        return Err("entry not found".to_string());
+    }
+
+    conn.query_row(
+        "SELECT id, sprint_id, date, category_id, title, details, created_at
+         FROM entries
+         WHERE id = ?1",
+        params![entry_id],
+        |row| {
+            Ok(DailyEntry {
+                id: row.get(0)?,
+                sprint_id: row.get(1)?,
+                date: row.get(2)?,
+                category_id: row.get(3)?,
+                title: row.get(4)?,
+                details: row.get(5)?,
+                created_at: row.get(6)?,
+            })
+        },
+    )
+    .map_err(|error| format!("failed to fetch updated entry: {error}"))
+}
+
+#[tauri::command]
+fn delete_daily_entry(app: AppHandle, input: DeleteDailyEntryInput) -> Result<(), String> {
+    let entry_id = input.id.trim();
+    if entry_id.is_empty() {
+        return Err("entry id is required".to_string());
+    }
+
+    let conn = open_db(&app)?;
+    let affected = conn
+        .execute("DELETE FROM entries WHERE id = ?1", params![entry_id])
+        .map_err(|error| format!("failed to delete entry: {error}"))?;
+
+    if affected == 0 {
+        return Err("entry not found".to_string());
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -1373,6 +1508,27 @@ fn update_menubar_settings(app: AppHandle, input: MenubarSettingsInput) -> Resul
     Ok(())
 }
 
+#[tauri::command]
+fn reset_database(app: AppHandle) -> Result<(), String> {
+    let mut conn = open_db(&app)?;
+    let tx = conn
+        .transaction()
+        .map_err(|error| format!("failed to start reset transaction: {error}"))?;
+
+    tx.execute("DELETE FROM entries", [])
+        .map_err(|error| format!("failed to reset entries: {error}"))?;
+    tx.execute("DELETE FROM sprints", [])
+        .map_err(|error| format!("failed to reset sprints: {error}"))?;
+    tx.execute("DELETE FROM categories", [])
+        .map_err(|error| format!("failed to reset categories: {error}"))?;
+
+    tx.commit()
+        .map_err(|error| format!("failed to commit database reset: {error}"))?;
+
+    ensure_default_categories_db(&conn)?;
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
@@ -1410,9 +1566,12 @@ fn main() {
             delete_sprint,
             list_entries_for_sprint,
             add_daily_entry,
+            update_daily_entry,
+            delete_daily_entry,
             generate_report,
             get_data_path,
             update_menubar_settings,
+            reset_database,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri app");

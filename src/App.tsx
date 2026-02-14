@@ -25,6 +25,7 @@ const SPRINT_DURATION_STORAGE_KEY = 'devlog-desk-sprint-duration-days';
 const MENUBAR_ICON_VISIBLE_STORAGE_KEY = 'devlog-desk-menubar-icon-visible';
 const ADD_ITEM_SHORTCUT_STORAGE_KEY = 'devlog-desk-add-item-shortcut';
 const DEFAULT_ADD_ITEM_SHORTCUT = 'CmdOrCtrl+Shift+N';
+const RESET_DATABASE_KEYWORD = 'delete';
 const OLD_SPRINTS_PAGE_SIZE = 6;
 const COLOR_THEME_OPTIONS: Array<{ id: ColorTheme; name: string; note: string; isDefault?: boolean }> = [
   {
@@ -584,12 +585,20 @@ type Crumb = {
   onClick?: () => void;
 };
 
+type TimelineItem = {
+  id: string;
+  date: string;
+  categoryId: string;
+  title: string;
+  details?: string | null;
+};
+
 type TimelineDay = {
   date: string;
   categories: Array<{
     categoryId: string;
     categoryName: string;
-    items: string[];
+    items: TimelineItem[];
   }>;
 };
 
@@ -851,6 +860,9 @@ export default function App() {
   const [addItemShortcut, setAddItemShortcut] = useState<string>(getInitialAddItemShortcut);
   const [addItemShortcutDraft, setAddItemShortcutDraft] = useState<string>(getInitialAddItemShortcut);
   const [addItemShortcutError, setAddItemShortcutError] = useState<string>('');
+  const [resetDatabaseConfirmText, setResetDatabaseConfirmText] = useState<string>('');
+  const [isResetDatabaseConfirmOpen, setIsResetDatabaseConfirmOpen] = useState<boolean>(false);
+  const [resetDatabaseAlert, setResetDatabaseAlert] = useState<string>('');
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [sprints, setSprints] = useState<Sprint[]>([]);
@@ -874,6 +886,8 @@ export default function App() {
   const [entryCategoryId, setEntryCategoryId] = useState<string>('');
   const [entryTitle, setEntryTitle] = useState<string>('');
   const [entryDetails, setEntryDetails] = useState<string>('');
+  const [editingEntryId, setEditingEntryId] = useState<string>('');
+  const [confirmDeleteEntryId, setConfirmDeleteEntryId] = useState<string>('');
 
   const [reportFromDate, setReportFromDate] = useState<string>('');
   const [reportToDate, setReportToDate] = useState<string>('');
@@ -900,6 +914,22 @@ export default function App() {
     return COLOR_THEME_OPTIONS.find((option) => option.id === colorTheme);
   }, [colorTheme]);
   const sprintDurationWeeks = sprintDurationDays === 7 ? 1 : 2;
+  const isResetDatabaseUnlocked =
+    resetDatabaseConfirmText.trim().toLowerCase() === RESET_DATABASE_KEYWORD;
+
+  useEffect(() => {
+    if (resetDatabaseAlert !== 'Database reset successfully.') {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setResetDatabaseAlert('');
+    }, 2600);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [resetDatabaseAlert]);
 
   function handleSmartPaste(
     e: ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>,
@@ -1005,23 +1035,32 @@ export default function App() {
       categories: day.categories.map((category) => ({
         categoryId: category.categoryId,
         categoryName: category.categoryName,
-        items: category.items.map((item) => {
-          const details = item.details?.trim();
-          if (!details) {
-            return item.title;
-          }
-          return `${item.title} - ${details}`;
-        })
+        items: category.items.map((item) => ({
+          id: item.id,
+          date: item.date,
+          categoryId: item.category_id,
+          title: item.title,
+          details: item.details ?? null
+        }))
       }))
     }));
   }, [groupedEntries]);
+
+  function timelineItemText(item: TimelineItem): string {
+    const details = item.details?.trim();
+    if (!details) {
+      return item.title;
+    }
+
+    return `${item.title} - ${details}`;
+  }
 
   function buildDayExportText(day: TimelineDay): string {
     const lines: string[] = [];
     for (const category of day.categories) {
       lines.push(category.categoryName);
-      category.items.forEach((line, index) => {
-        lines.push(`${index + 1}. ${line}`);
+      category.items.forEach((item, index) => {
+        lines.push(`${index + 1}. ${timelineItemText(item)}`);
       });
       lines.push('');
     }
@@ -1032,7 +1071,7 @@ export default function App() {
     const categorySections = day.categories
       .map((category) => {
         const items = category.items
-          .map((line) => `<li>${toInlineHtml(line)}</li>`)
+          .map((item) => `<li>${toInlineHtml(timelineItemText(item))}</li>`)
           .join('');
         return `<section><h3>${escapeHtml(category.categoryName)}</h3><ol>${items}</ol></section>`;
       })
@@ -1139,11 +1178,49 @@ export default function App() {
     setEntryDate(isoDateToday());
     setEntryTitle('');
     setEntryDetails('');
+    setEditingEntryId('');
+    setConfirmDeleteEntryId('');
     setIsHeaderRenameOpen(false);
     setHeaderRenameValue('');
     setCollapsedTimelineDays({});
     setConfirmDeleteSprintId('');
   }, [selectedSprintId]);
+
+  useEffect(() => {
+    if (!selectedSprintId) {
+      return;
+    }
+
+    const latestDay = sprintTimeline[0]?.date;
+    if (!latestDay) {
+      setCollapsedTimelineDays({});
+      return;
+    }
+
+    setCollapsedTimelineDays((current) => {
+      const hasMappedDay = sprintTimeline.some((day) =>
+        Object.prototype.hasOwnProperty.call(current, day.date)
+      );
+
+      if (!hasMappedDay) {
+        return { [latestDay]: false };
+      }
+
+      const next: Record<string, boolean> = {};
+      for (const day of sprintTimeline) {
+        if (Object.prototype.hasOwnProperty.call(current, day.date)) {
+          next[day.date] = current[day.date];
+        }
+      }
+
+      const hasExpandedDay = sprintTimeline.some((day) => next[day.date] === false);
+      if (!hasExpandedDay) {
+        next[latestDay] = false;
+      }
+
+      return next;
+    });
+  }, [selectedSprintId, sprintTimeline]);
 
   useEffect(() => {
     if (!supportsSystemTheme) {
@@ -1237,6 +1314,7 @@ export default function App() {
 
     setEntryTitle('');
     setEntryDetails('');
+    setConfirmDeleteEntryId('');
   }, [page]);
 
   useEffect(() => {
@@ -1560,6 +1638,7 @@ export default function App() {
     setEntryDate(isoDateToday());
     setEntryTitle('');
     setEntryDetails('');
+    setEditingEntryId('');
     if (!entryCategoryId && categories.length > 0) {
       setEntryCategoryId(categories[0].id);
     }
@@ -1590,6 +1669,97 @@ export default function App() {
     setAddItemShortcutError('');
     setError('');
     setNotice(`Shortcut reset: ${shortcutDisplayLabel(DEFAULT_ADD_ITEM_SHORTCUT)}`);
+  }
+
+  function onRequestResetDatabase() {
+    if (!isResetDatabaseUnlocked) {
+      setError(`Type "${RESET_DATABASE_KEYWORD}" to unlock database reset.`);
+      setNotice('');
+      setResetDatabaseAlert(`Type "${RESET_DATABASE_KEYWORD}" to unlock database reset.`);
+      setIsResetDatabaseConfirmOpen(false);
+      return;
+    }
+
+    setError('');
+    setNotice('');
+    setResetDatabaseAlert('Confirm reset to permanently delete all sprints, entries, and categories.');
+    setIsResetDatabaseConfirmOpen(true);
+  }
+
+  function onCancelResetDatabase() {
+    setIsResetDatabaseConfirmOpen(false);
+    setResetDatabaseAlert('');
+  }
+
+  async function onConfirmResetDatabase() {
+    if (!isResetDatabaseUnlocked) {
+      setError(`Type "${RESET_DATABASE_KEYWORD}" to unlock database reset.`);
+      setNotice('');
+      setResetDatabaseAlert(`Type "${RESET_DATABASE_KEYWORD}" to unlock database reset.`);
+      setIsResetDatabaseConfirmOpen(false);
+      return;
+    }
+
+    try {
+      setBusy(true);
+      setError('');
+      setNotice('');
+
+      await api.resetDatabase();
+
+      const [loadedCategories, loadedSprints, storagePath] = await Promise.all([
+        api.listCategories(),
+        api.listSprints(),
+        api.getDataPath()
+      ]);
+
+      setCategories(loadedCategories);
+      setSprints(loadedSprints);
+      setDataPath(storagePath);
+      setSelectedSprintId(pickActiveSprint(loadedSprints)?.id ?? '');
+      setEntries([]);
+
+      setEntryCategoryId(loadedCategories[0]?.id ?? '');
+      setReportCategoryIds(pickDefaultReportCategoryIds(loadedCategories));
+      setReportFromDate('');
+      setReportToDate('');
+      setReportMarkdown('');
+      setReportPath('');
+      setCopyToast(null);
+
+      setNewCategoryName('');
+      setEditingCategoryId('');
+      setEditingCategoryName('');
+      setPendingDeleteCategoryId('');
+
+      setShowCreateSprintForm(false);
+      setNewSprintName('');
+      setNewSprintStart(isoDateToday());
+
+      setEntryDate(isoDateToday());
+      setEntryTitle('');
+      setEntryDetails('');
+      setEditingEntryId('');
+
+      setIsHeaderRenameOpen(false);
+      setHeaderRenameValue('');
+      setCollapsedTimelineDays({});
+      setOldSprintsPage(1);
+      setConfirmDeleteSprintId('');
+      setPendingArchiveDeleteSprintId('');
+      setOpenSprintCardMenuId('');
+      setClosingSprintCardMenuId('');
+      setResetDatabaseConfirmText('');
+      setIsResetDatabaseConfirmOpen(false);
+
+      setNotice('Database reset complete. You can start from a clean state.');
+      setResetDatabaseAlert('Database reset successfully.');
+    } catch (err) {
+      setError(String(err));
+      setResetDatabaseAlert('Reset failed. Review the error message below.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   function clearSprintCardMenuCloseTimer() {
@@ -1683,14 +1853,6 @@ export default function App() {
   }
 
   async function onDeleteSprint(sprint: Sprint) {
-    if (activeSprint?.id === sprint.id) {
-      setError('You cannot delete the active sprint.');
-      setNotice('');
-      setConfirmDeleteSprintId('');
-      setPendingArchiveDeleteSprintId('');
-      return;
-    }
-
     try {
       setBusy(true);
       setError('');
@@ -1716,14 +1878,6 @@ export default function App() {
   }
 
   function onRequestDeleteSprint(sprint: Sprint) {
-    if (activeSprint?.id === sprint.id) {
-      setError('You cannot delete the active sprint.');
-      setNotice('');
-      setConfirmDeleteSprintId('');
-      setPendingArchiveDeleteSprintId('');
-      return;
-    }
-
     setError('');
     setIsHeaderRenameOpen(false);
     setHeaderRenameValue('');
@@ -1732,23 +1886,75 @@ export default function App() {
     setNotice('Press Confirm delete to remove this sprint.');
   }
 
-  function onRequestDeleteArchivedSprint(sprint: Sprint) {
-    if (activeSprint?.id === sprint.id) {
-      setError('You cannot delete the active sprint.');
-      setNotice('');
-      setPendingArchiveDeleteSprintId('');
-      return;
-    }
-
+  function onRequestDeleteSprintFromMenu(sprint: Sprint) {
     setError('');
     setIsHeaderRenameOpen(false);
     setHeaderRenameValue('');
     setConfirmDeleteSprintId('');
     setPendingArchiveDeleteSprintId(sprint.id);
-    setNotice('Press Confirm delete in the menu to remove this archived sprint.');
+    setNotice('Press Confirm delete in the menu to remove this sprint.');
   }
 
-  async function onAddEntry(e: FormEvent<HTMLFormElement>) {
+  function startEditEntry(item: TimelineItem) {
+    setEditingEntryId(item.id);
+    setConfirmDeleteEntryId('');
+    setEntryDate(item.date);
+    setEntryCategoryId(item.categoryId);
+    setEntryTitle(item.title);
+    setEntryDetails(item.details ?? '');
+    setError('');
+    setNotice('Editing item. Update it in the form.');
+
+    window.setTimeout(() => {
+      entryTitleInputRef.current?.focus();
+      entryTitleInputRef.current?.select();
+    }, 40);
+  }
+
+  function cancelEditEntry() {
+    setEditingEntryId('');
+    setEntryDate(isoDateToday());
+    setEntryTitle('');
+    setEntryDetails('');
+  }
+
+  function onRequestDeleteEntry(item: TimelineItem) {
+    setConfirmDeleteEntryId(item.id);
+    setError('');
+    setNotice('');
+  }
+
+  function onCancelDeleteEntry() {
+    setConfirmDeleteEntryId('');
+  }
+
+  async function onDeleteEntry(item: TimelineItem) {
+    if (!selectedSprintId) {
+      return;
+    }
+
+    try {
+      setBusy(true);
+      setError('');
+      setNotice('');
+
+      await api.deleteDailyEntry({ id: item.id });
+
+      if (editingEntryId === item.id) {
+        cancelEditEntry();
+      }
+
+      await loadEntriesForSprint(selectedSprintId);
+      setConfirmDeleteEntryId('');
+      setNotice('Entry deleted.');
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onSubmitEntry(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!selectedSprintId) {
       setError('Choose a sprint first.');
@@ -1765,24 +1971,45 @@ export default function App() {
       return;
     }
 
+    if (!entryDate.trim()) {
+      setError('Entry date is required.');
+      return;
+    }
+
+    const submittedDate = entryDate;
+    const normalizedDetails = entryDetails.trim() ? entryDetails.trim() : null;
+
     try {
       setBusy(true);
       setError('');
       setNotice('');
 
-      await api.addDailyEntry({
-        sprint_id: selectedSprintId,
-        date: entryDate,
-        category_id: entryCategoryId,
-        title: entryTitle.trim(),
-        details: entryDetails.trim() ? entryDetails.trim() : null
-      });
+      if (editingEntryId) {
+        await api.updateDailyEntry({
+          id: editingEntryId,
+          date: entryDate,
+          category_id: entryCategoryId,
+          title: entryTitle.trim(),
+          details: normalizedDetails
+        });
+      } else {
+        await api.addDailyEntry({
+          sprint_id: selectedSprintId,
+          date: entryDate,
+          category_id: entryCategoryId,
+          title: entryTitle.trim(),
+          details: normalizedDetails
+        });
+      }
 
+      setEditingEntryId('');
       setEntryTitle('');
       setEntryDetails('');
       setEntryDate(isoDateToday());
+      setConfirmDeleteEntryId('');
       await loadEntriesForSprint(selectedSprintId);
-      setNotice('Entry added.');
+      setCollapsedTimelineDays({ [submittedDate]: false });
+      setNotice(editingEntryId ? 'Entry updated.' : 'Entry added.');
     } catch (err) {
       setError(String(err));
     } finally {
@@ -2146,17 +2373,88 @@ export default function App() {
                   <strong>{activeSprint.name}</strong>
                 </p>
                 {renderSprintDateRange(activeSprint.start_date, activeSprint.end_date)}
-                <div className="inline-actions">
+                <div className="inline-actions home-active-sprint-actions">
                   <button type="button" onClick={() => openSprintDetails(activeSprint.id)}>
                     Open Sprint
                   </button>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={() => onRenameSprint(activeSprint)}
-                  >
-                    Rename
-                  </button>
+                  <div className="sprint-card-more" data-sprint-card-menu-root>
+                    <button
+                      type="button"
+                      className={
+                        openSprintCardMenuId === activeSprint.id
+                          ? 'btn-secondary sprint-card-more-trigger sprint-card-more-trigger-active'
+                          : 'btn-secondary sprint-card-more-trigger'
+                      }
+                      aria-label={`More actions for ${activeSprint.name}`}
+                      aria-expanded={openSprintCardMenuId === activeSprint.id}
+                      onClick={() => toggleSprintCardMenu(activeSprint.id)}
+                    >
+                      ...
+                    </button>
+                    <div
+                      className={
+                        openSprintCardMenuId === activeSprint.id
+                          ? 'sprint-card-more-menu sprint-card-more-menu-open'
+                          : isSprintCardMenuVisible(activeSprint.id)
+                            ? 'sprint-card-more-menu sprint-card-more-menu-closing'
+                            : 'sprint-card-more-menu'
+                      }
+                      aria-hidden={openSprintCardMenuId !== activeSprint.id}
+                    >
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => {
+                          beginCloseSprintCardMenu(activeSprint.id);
+                          onRenameSprint(activeSprint);
+                        }}
+                      >
+                        Rename
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => {
+                          beginCloseSprintCardMenu(activeSprint.id);
+                          openReportForSprint(activeSprint.id);
+                        }}
+                      >
+                        Report
+                      </button>
+                      {pendingArchiveDeleteSprintId === activeSprint.id ? (
+                        <>
+                          <button
+                            type="button"
+                            className="btn-danger"
+                            disabled={busy}
+                            onClick={() => {
+                              beginCloseSprintCardMenu(activeSprint.id);
+                              void onDeleteSprint(activeSprint);
+                            }}
+                          >
+                            Confirm delete
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            disabled={busy}
+                            onClick={() => setPendingArchiveDeleteSprintId('')}
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn-danger"
+                          disabled={busy}
+                          onClick={() => onRequestDeleteSprintFromMenu(activeSprint)}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </>
             ) : (
@@ -2496,6 +2794,84 @@ export default function App() {
               <p className="meta">Current shortcut: {shortcutDisplayLabel(addItemShortcut)}</p>
             </div>
           </section>
+
+          <section className="card card-wide danger-zone-card">
+            <h2>Danger Zone</h2>
+            <p className="meta">
+              Reset the entire database and start from a clean state.
+            </p>
+            <p className="meta">
+              Type <code>{RESET_DATABASE_KEYWORD}</code> to unlock, then confirm reset.
+            </p>
+            <div className="danger-zone-reset-row">
+              <input
+                className="danger-zone-input"
+                value={resetDatabaseConfirmText}
+                onChange={(event) => {
+                  setResetDatabaseConfirmText(event.target.value);
+                  if (error) {
+                    setError('');
+                  }
+                  if (isResetDatabaseConfirmOpen) {
+                    setIsResetDatabaseConfirmOpen(false);
+                  }
+                  if (resetDatabaseAlert) {
+                    setResetDatabaseAlert('');
+                  }
+                }}
+                placeholder={`Type ${RESET_DATABASE_KEYWORD}`}
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    if (isResetDatabaseConfirmOpen && isResetDatabaseUnlocked) {
+                      void onConfirmResetDatabase();
+                    } else if (isResetDatabaseUnlocked) {
+                      onRequestResetDatabase();
+                    }
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="btn-danger"
+                onClick={onRequestResetDatabase}
+                disabled={busy || !isResetDatabaseUnlocked}
+              >
+                Reset Database
+              </button>
+            </div>
+            {isResetDatabaseConfirmOpen ? (
+              <div className="inline-actions danger-zone-confirm-actions">
+                <button
+                  type="button"
+                  className="btn-danger"
+                  onClick={() => void onConfirmResetDatabase()}
+                  disabled={busy}
+                >
+                  Confirm Reset
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={onCancelResetDatabase}
+                  disabled={busy}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : null}
+            {resetDatabaseAlert ? (
+              <p className="danger-zone-alert" role="status" aria-live="polite">
+                {resetDatabaseAlert}
+              </p>
+            ) : null}
+            <p className="meta">
+              This permanently removes all sprints, entries, and custom categories.
+            </p>
+          </section>
         </main>
       ) : null}
 
@@ -2628,40 +3004,38 @@ export default function App() {
                             >
                               Report
                             </button>
-                            {isArchived ? (
-                              pendingArchiveDeleteSprintId === sprint.id ? (
-                                <>
-                                  <button
-                                    type="button"
-                                    className="btn-danger"
-                                    disabled={busy}
-                                    onClick={() => {
-                                      beginCloseSprintCardMenu(sprint.id);
-                                      void onDeleteSprint(sprint);
-                                    }}
-                                  >
-                                    Confirm delete
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="btn-secondary"
-                                    disabled={busy}
-                                    onClick={() => setPendingArchiveDeleteSprintId('')}
-                                  >
-                                    Cancel
-                                  </button>
-                                </>
-                              ) : (
+                            {pendingArchiveDeleteSprintId === sprint.id ? (
+                              <>
                                 <button
                                   type="button"
                                   className="btn-danger"
                                   disabled={busy}
-                                  onClick={() => onRequestDeleteArchivedSprint(sprint)}
+                                  onClick={() => {
+                                    beginCloseSprintCardMenu(sprint.id);
+                                    void onDeleteSprint(sprint);
+                                  }}
                                 >
-                                  Delete
+                                  Confirm delete
                                 </button>
-                              )
-                            ) : null}
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  disabled={busy}
+                                  onClick={() => setPendingArchiveDeleteSprintId('')}
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn-danger"
+                                disabled={busy}
+                                onClick={() => onRequestDeleteSprintFromMenu(sprint)}
+                              >
+                                Delete
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -2754,28 +3128,14 @@ export default function App() {
                       type="button"
                       className="icon-action-button btn-danger"
                       aria-label="Delete sprint"
-                      aria-describedby={
-                        activeSprint?.id === selectedSprint.id
-                          ? 'active-sprint-delete-hint'
-                          : undefined
-                      }
-                      title={
-                        activeSprint?.id === selectedSprint.id
-                          ? 'Active sprint cannot be deleted'
-                          : 'Delete sprint'
-                      }
+                      title="Delete sprint"
                       onClick={() => onRequestDeleteSprint(selectedSprint)}
-                      disabled={busy || activeSprint?.id === selectedSprint.id}
+                      disabled={busy}
                     >
                       <TrashIcon />
                     </button>
                   )}
                 </div>
-                {activeSprint?.id === selectedSprint.id ? (
-                  <p id="active-sprint-delete-hint" className="meta sprint-delete-hint">
-                    Active sprint cannot be deleted. Create another sprint first.
-                  </p>
-                ) : null}
               </div>
             </section>
 
@@ -2834,9 +3194,62 @@ export default function App() {
                             <div key={`${group.date}-${categoryGroup.categoryId}`} className="timeline-category">
                               <h4>{categoryGroup.categoryName}</h4>
                               <ol className="timeline-ordered-list">
-                                {categoryGroup.items.map((line, index) => (
-                                  <li key={`${group.date}-${categoryGroup.categoryId}-${index}`}>
-                                    {renderInlineMarkdown(line)}
+                                {categoryGroup.items.map((item) => (
+                                  <li key={item.id}>
+                                    <div className="timeline-item-row">
+                                      <span className="timeline-item-text">
+                                        {renderInlineMarkdown(timelineItemText(item))}
+                                      </span>
+                                      <span className="timeline-item-actions">
+                                        {confirmDeleteEntryId === item.id ? (
+                                          <>
+                                            <button
+                                              type="button"
+                                              className="btn-danger timeline-item-confirm-button"
+                                              onClick={() => void onDeleteEntry(item)}
+                                              disabled={busy}
+                                            >
+                                              Confirm
+                                            </button>
+                                            <button
+                                              type="button"
+                                              className="btn-secondary timeline-item-confirm-button"
+                                              onClick={onCancelDeleteEntry}
+                                              disabled={busy}
+                                            >
+                                              Cancel
+                                            </button>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <button
+                                              type="button"
+                                              className={
+                                                editingEntryId === item.id
+                                                  ? 'icon-action-button timeline-item-action-button icon-action-button-armed'
+                                                  : 'icon-action-button timeline-item-action-button'
+                                              }
+                                              aria-label="Edit item"
+                                              title="Edit item"
+                                              onClick={() => startEditEntry(item)}
+                                              disabled={busy}
+                                            >
+                                              <EditIcon />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              className="icon-action-button timeline-item-action-button btn-danger"
+                                              aria-label="Delete item"
+                                              title="Delete item"
+                                              onClick={() => onRequestDeleteEntry(item)}
+                                              disabled={busy}
+                                            >
+                                              <TrashIcon />
+                                            </button>
+                                          </>
+                                        )}
+                                      </span>
+                                    </div>
                                   </li>
                                 ))}
                               </ol>
@@ -2850,11 +3263,14 @@ export default function App() {
               </section>
 
               <section className="card sprint-detail-form">
-                <h2>Add Daily Item</h2>
+                <h2>{editingEntryId ? 'Edit Daily Item' : 'Add Daily Item'}</h2>
+                {editingEntryId ? (
+                  <p className="meta">Save the form to update this timeline item.</p>
+                ) : null}
                 {categories.length === 0 ? (
                   <p className="meta">No categories yet. Create one in the Categories page.</p>
                 ) : null}
-                <form onSubmit={onAddEntry} className="stack add-item-form">
+                <form onSubmit={onSubmitEntry} className="stack add-item-form">
                   <label>
                     Date
                     <DatePicker
@@ -2906,10 +3322,26 @@ export default function App() {
                   <button
                     type="submit"
                     className="sprint-form-submit"
-                    disabled={busy || !selectedSprintId || !entryCategoryId || categories.length === 0}
+                    disabled={
+                      busy ||
+                      !selectedSprintId ||
+                      !entryCategoryId ||
+                      categories.length === 0 ||
+                      !entryDate.trim()
+                    }
                   >
-                    Add Item
+                    {editingEntryId ? 'Update Item' : 'Add Item'}
                   </button>
+                  {editingEntryId ? (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={cancelEditEntry}
+                      disabled={busy}
+                    >
+                      Cancel Edit
+                    </button>
+                  ) : null}
                 </form>
               </section>
             </section>

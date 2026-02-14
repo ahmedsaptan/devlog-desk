@@ -1,6 +1,6 @@
 [package]
 name = "devlog-desk"
-version = "0.1.0"
+version = "0.2.1"
 description = "Desktop daily update tracker for software engineering teams"
 authors = ["you"]
 edition = "2021"
