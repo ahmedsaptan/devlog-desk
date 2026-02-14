@@ -1,10 +1,14 @@
-use chrono::{Duration, NaiveDate, Utc};
+use chrono::{Duration, Local, NaiveDate, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::{
+    menu::{MenuBuilder, MenuItem},
+    tray::TrayIconBuilder,
+    AppHandle, Emitter, Manager, Runtime,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Category {
@@ -67,12 +71,18 @@ struct DeleteCategoryInput {
 struct NewSprintInput {
     name: Option<String>,
     start_date: String,
+    duration_days: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
 struct UpdateSprintNameInput {
     id: String,
     name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeleteSprintInput {
+    id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -92,12 +102,24 @@ struct ReportInput {
     categories: Option<Vec<String>>,
 }
 
+#[derive(Debug, Deserialize)]
+struct MenubarSettingsInput {
+    show_icon: bool,
+    add_item_shortcut: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct ReportOutput {
     markdown: String,
     file_path: String,
     total_items: usize,
 }
+
+const TRAY_ICON_ID: &str = "devlog-tray";
+const TRAY_MENU_ADD_ITEM_ID: &str = "tray_add_item";
+const TRAY_MENU_ADD_SPRINT_ID: &str = "tray_add_sprint";
+const TRAY_MENU_QUIT_ID: &str = "tray_quit";
+const DEFAULT_ADD_ITEM_SHORTCUT: &str = "CmdOrCtrl+Shift+N";
 
 fn now() -> String {
     Utc::now().to_rfc3339()
@@ -106,6 +128,30 @@ fn now() -> String {
 fn next_id(prefix: &str) -> String {
     let ts = Utc::now().timestamp_nanos_opt().unwrap_or(0);
     format!("{prefix}-{ts}")
+}
+
+fn pick_active_sprint_id(sprints: &[Sprint]) -> Option<String> {
+    if sprints.is_empty() {
+        return None;
+    }
+
+    let today = Local::now().date_naive().format("%Y-%m-%d").to_string();
+    let mut newest_first = sprints.to_vec();
+    newest_first.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+
+    if let Some(ongoing) = newest_first.iter().find(|sprint| {
+        let starts_ok = sprint.start_date <= today;
+        let ends_ok = sprint
+            .end_date
+            .as_deref()
+            .map(|end_date| end_date >= today.as_str())
+            .unwrap_or(true);
+        starts_ok && ends_ok
+    }) {
+        return Some(ongoing.id.clone());
+    }
+
+    newest_first.first().map(|sprint| sprint.id.clone())
 }
 
 fn app_data_root(app: &AppHandle) -> Result<PathBuf, String> {
@@ -925,7 +971,11 @@ fn create_sprint(app: AppHandle, input: NewSprintInput) -> Result<Sprint, String
 
     let parsed_start = NaiveDate::parse_from_str(start_date, "%Y-%m-%d")
         .map_err(|_| "start_date must be in YYYY-MM-DD format".to_string())?;
-    let calculated_end = (parsed_start + Duration::days(13))
+    let duration_days = input.duration_days.unwrap_or(14);
+    if duration_days != 7 && duration_days != 14 {
+        return Err("duration_days must be 7 or 14".to_string());
+    }
+    let calculated_end = (parsed_start + Duration::days(duration_days - 1))
         .format("%Y-%m-%d")
         .to_string();
 
@@ -1005,6 +1055,32 @@ fn update_sprint_name(app: AppHandle, input: UpdateSprintNameInput) -> Result<Sp
         },
     )
     .map_err(|error| format!("failed to fetch updated sprint: {error}"))
+}
+
+#[tauri::command]
+fn delete_sprint(app: AppHandle, input: DeleteSprintInput) -> Result<(), String> {
+    let sprint_id = input.id.trim();
+    if sprint_id.is_empty() {
+        return Err("sprint id is required".to_string());
+    }
+
+    let conn = open_db(&app)?;
+    let sprints = list_sprints_db(&conn)?;
+    if let Some(active_sprint_id) = pick_active_sprint_id(&sprints) {
+        if active_sprint_id == sprint_id {
+            return Err("cannot delete the active sprint".to_string());
+        }
+    }
+
+    let affected = conn
+        .execute("DELETE FROM sprints WHERE id = ?1", params![sprint_id])
+        .map_err(|error| format!("failed to delete sprint: {error}"))?;
+
+    if affected == 0 {
+        return Err("sprint not found".to_string());
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -1219,8 +1295,110 @@ fn get_data_path(app: AppHandle) -> Result<String, String> {
     Ok(path.to_string_lossy().to_string())
 }
 
+fn normalize_shortcut_accelerator(value: Option<String>) -> Option<String> {
+    value.and_then(|raw| {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn build_tray_menu<R: Runtime, M: Manager<R>>(
+    app: &M,
+    add_item_shortcut: Option<&str>,
+) -> tauri::Result<tauri::menu::Menu<R>> {
+    let add_item = MenuItem::with_id(
+        app,
+        TRAY_MENU_ADD_ITEM_ID,
+        "Add New Item to Current Sprint",
+        true,
+        add_item_shortcut,
+    )?;
+    let add_sprint = MenuItem::with_id(
+        app,
+        TRAY_MENU_ADD_SPRINT_ID,
+        "Add New Sprint",
+        true,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(app, TRAY_MENU_QUIT_ID, "Quit", true, None::<&str>)?;
+
+    MenuBuilder::new(app)
+        .item(&add_item)
+        .item(&add_sprint)
+        .separator()
+        .item(&quit)
+        .build()
+}
+
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn emit_tray_action(app: &AppHandle, action: &str) {
+    show_main_window(app);
+    let _ = app.emit("tray-action", action);
+}
+
+#[tauri::command]
+fn update_menubar_settings(app: AppHandle, input: MenubarSettingsInput) -> Result<(), String> {
+    let shortcut = normalize_shortcut_accelerator(input.add_item_shortcut);
+    let tray_menu = build_tray_menu(
+        &app,
+        shortcut
+            .as_deref()
+            .or(Some(DEFAULT_ADD_ITEM_SHORTCUT)),
+    )
+    .map_err(|error| format!("failed to rebuild tray menu: {error}"))?;
+
+    let tray_icon = app
+        .tray_by_id(TRAY_ICON_ID)
+        .ok_or_else(|| "tray icon is not available".to_string())?;
+
+    tray_icon
+        .set_menu(Some(tray_menu))
+        .map_err(|error| format!("failed to update tray menu: {error}"))?;
+
+    tray_icon
+        .set_visible(input.show_icon)
+        .map_err(|error| format!("failed to update tray icon visibility: {error}"))?;
+
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            let tray_menu = build_tray_menu(app, Some(DEFAULT_ADD_ITEM_SHORTCUT))?;
+
+            let mut tray_builder = TrayIconBuilder::with_id(TRAY_ICON_ID)
+                .menu(&tray_menu)
+                .tooltip("DevLog Desk")
+                .show_menu_on_left_click(true)
+                .on_menu_event(|app, event| {
+                    if event.id() == TRAY_MENU_ADD_ITEM_ID {
+                        emit_tray_action(app, "add_item_current_sprint");
+                    } else if event.id() == TRAY_MENU_ADD_SPRINT_ID {
+                        emit_tray_action(app, "add_new_sprint");
+                    } else if event.id() == TRAY_MENU_QUIT_ID {
+                        app.exit(0);
+                    }
+                });
+
+            if let Some(icon) = app.default_window_icon().cloned() {
+                tray_builder = tray_builder.icon(icon);
+            }
+
+            tray_builder.build(app)?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             list_categories,
             create_category,
@@ -1229,10 +1407,12 @@ fn main() {
             list_sprints,
             create_sprint,
             update_sprint_name,
+            delete_sprint,
             list_entries_for_sprint,
             add_daily_entry,
             generate_report,
             get_data_path,
+            update_menubar_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri app");

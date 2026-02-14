@@ -14,9 +14,11 @@ export const api = {
   createSprint: (payload: {
     name?: string | null;
     start_date: string;
+    duration_days?: number;
   }) => invoke<Sprint>('create_sprint', { input: payload }),
   updateSprintName: (payload: { id: string; name: string }) =>
     invoke<Sprint>('update_sprint_name', { input: payload }),
+  deleteSprint: (payload: { id: string }) => invoke<void>('delete_sprint', { input: payload }),
 
   listEntriesForSprint: (sprintId: string) =>
     invoke<DailyEntry[]>('list_entries_for_sprint', { sprintId }),
@@ -36,5 +38,9 @@ export const api = {
     categories?: string[] | null;
   }) => invoke<ReportOutput>('generate_report', { input: payload }),
 
-  getDataPath: () => invoke<string>('get_data_path')
+  getDataPath: () => invoke<string>('get_data_path'),
+  updateMenubarSettings: (payload: {
+    show_icon: boolean;
+    add_item_shortcut?: string | null;
+  }) => invoke<void>('update_menubar_settings', { input: payload })
 };
